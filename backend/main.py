@@ -19,6 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import FileResponse
+from backend.routers.reports import reports_router
 
 # NEW IMPORTS for JSON-based login & DB usage
 from pydantic import BaseModel
@@ -101,18 +102,20 @@ app.include_router(user.router, prefix="/api/users", tags=["users"])
 app.include_router(account.router, prefix="/api/accounts", tags=["accounts"])
 app.include_router(calculation.router, prefix="/api/calculations", tags=["calculations"])
 app.include_router(bitcoin.router, prefix="/api", tags=["Bitcoin"])
+app.include_router(reports_router, prefix="/reports", tags=["reports"])
 
 # ---------------------------------------------------------
 # Reports Router
 # ---------------------------------------------------------
 # If you placed the `reports_router` in backend/routers/reports.py
 # add it here:
-try:
-    from backend.routers.reports import reports_router
-    app.include_router(reports_router, prefix="/reports", tags=["reports"])
-except ImportError:
-    print("WARNING: Could not import 'reports_router'. Make sure 'backend/routers/reports.py' exists.")
-
+#try:
+    #from backend.routers.reports import reports_router
+    #app.include_router(reports_router, prefix="/reports", tags=["reports"])
+#except ImportError:
+    #print("WARNING: Could not import 'reports_router'. Make sure 'backend/routers/reports.py' exists.")
+from backend.routers.reports import reports_router
+app.include_router(reports_router, prefix="/reports", tags=["reports"])
 # ---------------------------------------------------------
 # Session-Based Auth Helpers
 # ---------------------------------------------------------
