@@ -1,3 +1,5 @@
+/* src/styles/converter.css */
+
 /* Centers the converter horizontally */
 .sidebar-converter {
   display: flex;
@@ -39,9 +41,9 @@
 
 .toggle-btn {
   flex: 1;
-  margin: 0 0.2rem;      /* Increased from 0.1rem */
-  padding: 0.4rem;       /* Increased from 0.3rem */
-  font-size: 0.9rem;     /* Increased from 0.7rem */
+  margin: 0 0.1rem;      /* Reduced from 0.2rem to fit three buttons */
+  padding: 0.3rem;       /* Reduced from 0.4rem to fit smaller width */
+  font-size: 0.8rem;     /* Reduced from 0.9rem to fit text */
   border: 1px solid #444;
   border-radius: 4px;
   background: #333;
@@ -50,17 +52,29 @@
   transition: background 0.3s;
   text-align: center;
 }
+
+/* Remove margin for first and last buttons to avoid extra spacing */
+.toggle-btn:first-child {
+  margin-left: 0;
+}
+
+.toggle-btn:last-child {
+  margin-right: 0;
+}
+
 .toggle-btn.active {
   background-color: #4a4a4a;
   border-color: var(--color-accent);
   color: #fff;
 }
+
 .toggle-btn:hover {
   background: #4a4a4a;
 }
 
 .manual-price-row,
-.converter-row {
+.converter-row,
+.date-price-row { /* Added date-price-row to match styling */
   display: flex;
   flex-direction: column;
   margin-top: 0rem;
@@ -68,14 +82,16 @@
 }
 
 .manual-price-row label,
-.converter-row label {
+.converter-row label,
+.date-price-row label { /* Added date-price-row label */
   margin-bottom: 0.3rem; /* Increased from 0.25rem */
   color: var(--color-text-dim);
   font-size: 0.9rem;     /* Increased from 0.75rem */
 }
 
 .manual-price-row input,
-.converter-row input {
+.converter-row input,
+.date-price-row input { /* Added date-price-row input */
   width: 100%;
   padding: 0.4rem;       /* Increased from 0.3rem */
   font-size: 0.9rem;     /* Increased from 0.75rem */
@@ -84,8 +100,10 @@
   background-color: #2a2a2a;
   color: #d4d4d4;
 }
+
 .manual-price-row input:focus,
-.converter-row input:focus {
+.converter-row input:focus,
+.date-price-row input:focus { /* Added date-price-row input focus */
   outline: none;
   border-color: var(--color-accent);
 }
