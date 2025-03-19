@@ -82,7 +82,7 @@ const BtcConverter: React.FC = () => {
   const handleUsdChange = (value: string) => {
     setUsdValue(value);
     const usdNum = parseFloat(value) || 0;
-    const btcNum = usdNum / btcPrice;
+    const btcNum = btcPrice ? usdNum / btcPrice : 0; // Prevent division by zero
     const satsNum = btcNum * 100_000_000;
     setBtcValue(btcNum ? round(btcNum).toString() : "");
     setSatsValue(satsNum ? Math.floor(satsNum).toString() : "");
@@ -165,14 +165,16 @@ const BtcConverter: React.FC = () => {
       {/* Date mode: Show date picker and price */}
       {mode === "date" && (
         <div className="date-price-row">
-          <label htmlFor="datePicker">Select Date</label>
-          <input
-            id="datePicker"
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-          />
-          <p>
+          <div className="date-input-row">
+            <label htmlFor="datePicker">Select Date</label>
+            <input
+              id="datePicker"
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+            />
+          </div>
+          <p className="btc-price">
             BTC Price: $
             {btcPrice.toLocaleString(undefined, {
               minimumFractionDigits: 2,
