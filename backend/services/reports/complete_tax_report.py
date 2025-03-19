@@ -1,3 +1,4 @@
+# File: backend/services/reports/complete_tax_report.py
 from typing import Dict, Any, List
 from io import BytesIO
 
@@ -8,30 +9,19 @@ from reportlab.platypus import (
 )
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+
 
 def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
     """
-    Generates a 'Comprehensive Tax Report' that attempts to mimic Koinly's style:
-      - Cover Title & Metadata
-      - Table of Contents
-      - Summaries (Capital Gains, Income, Asset Summary)
-      - Detailed Sections (Capital Gains Txs, Income Txs, Gifts, Expenses, EOY Balances)
-      - Additional Data:
-         * All Transactions (raw)
-         * Lot Disposal Details
-         * Ledger Entries
-         * Account Balances, Overall Calculations
-      - Data Sources
-      - Disclaimers/Methodology
+    Generates a 'Comprehensive Tax Report' with extended detail sections but
+    ensures the PDF still builds successfully (avoiding table layout issues, etc.).
     """
 
-    # Prepare in-memory buffer for PDF
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
 
     styles = getSampleStyleSheet()
-
-    # Additional paragraph styles for headings & TOC
     h1 = ParagraphStyle(name='Heading1', parent=styles['Heading1'], spaceAfter=6)
     h2 = ParagraphStyle(name='Heading2', parent=styles['Heading2'], spaceAfter=4)
 
@@ -55,7 +45,6 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
     story.append(Paragraph(meta_text, styles["Normal"]))
     story.append(Spacer(1, 12))
 
-    # (Optional) disclaimers or methodology at front
     disclaimers = report_dict.get("disclaimers", "")
     if disclaimers:
         story.append(Paragraph("<b>Disclaimers & Methodology</b>", h2))
@@ -92,7 +81,6 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
     story.append(Spacer(1, 12))
     story.append(PageBreak())
 
-    # Helper to add a heading that appears in TOC
     def add_section_heading(text: str, level: int = 1):
         style = h1 if level == 1 else h2
         para = Paragraph(text, style)
@@ -112,18 +100,24 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
 
         cg_data = [
             ["Type", "Proceeds", "Cost Basis", "Gain/Loss"],
-            ["Short-Term",
-             short_term.get("proceeds", 0),
-             short_term.get("basis", 0),
-             short_term.get("gain", 0)],
-            ["Long-Term",
-             long_term.get("proceeds", 0),
-             long_term.get("basis", 0),
-             long_term.get("gain", 0)],
-            ["Total",
-             total.get("proceeds", 0),
-             total.get("basis", 0),
-             total.get("gain", 0)],
+            [
+                "Short-Term",
+                short_term.get("proceeds", 0),
+                short_term.get("basis", 0),
+                short_term.get("gain", 0),
+            ],
+            [
+                "Long-Term",
+                long_term.get("proceeds", 0),
+                long_term.get("basis", 0),
+                long_term.get("gain", 0),
+            ],
+            [
+                "Total",
+                total.get("proceeds", 0),
+                total.get("basis", 0),
+                total.get("gain", 0),
+            ],
         ]
         table = Table(cg_data)
         table.setStyle(TableStyle([
@@ -167,11 +161,14 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
         header = ["Asset", "Profit", "Loss", "Net"]
         data = [header]
         for item in asset_summary:
+            profit = float(item.get("profit", 0) or 0)
+            loss = float(item.get("loss", 0) or 0)
+            net = float(item.get("net", 0) or 0)
             data.append([
                 item.get("asset", ""),
-                f"{item.get('profit', 0):.2f}",
-                f"{item.get('loss', 0):.2f}",
-                f"{item.get('net', 0):.2f}",
+                f"{profit:.2f}",
+                f"{loss:.2f}",
+                f"{net:.2f}",
             ])
         table = Table(data)
         table.setStyle(TableStyle([
@@ -195,14 +192,18 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
              "Cost Basis", "Proceeds", "Gain/Loss", "Holding"]
         ]
         for tx in cg_transactions:
+            amount = float(tx.get("amount", 0) or 0)
+            cost = float(tx.get("cost", 0) or 0)
+            proceeds = float(tx.get("proceeds", 0) or 0)
+            gain_loss = float(tx.get("gain_loss", 0) or 0)
             tx_data.append([
                 tx.get("date_sold", ""),
                 tx.get("date_acquired", ""),
                 tx.get("asset", ""),
-                f"{tx.get('amount', 0):.8f}",
-                f"${tx.get('cost', 0):.2f}",
-                f"${tx.get('proceeds', 0):.2f}",
-                f"${tx.get('gain_loss', 0):.2f}",
+                f"{amount:.8f}",
+                f"${cost:.2f}",
+                f"${proceeds:.2f}",
+                f"${gain_loss:.2f}",
                 tx.get("holding_period", "")
             ])
         table = Table(tx_data, repeatRows=1)
@@ -224,11 +225,13 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
         add_section_heading("Income Transactions (Detailed)", 1)
         inc_data = [["Date", "Asset", "Amount", "Value (USD)", "Type", "Description"]]
         for i_tx in inc_transactions:
+            amt = float(i_tx.get("amount", 0) or 0)
+            val = float(i_tx.get("value_usd", 0) or 0)
             inc_data.append([
                 i_tx.get("date", ""),
                 i_tx.get("asset", ""),
-                f"{i_tx.get('amount', 0):.8f}",
-                f"${i_tx.get('value_usd', 0):.2f}",
+                f"{amt:.8f}",
+                f"${val:.2f}",
                 i_tx.get("type", ""),
                 i_tx.get("description", ""),
             ])
@@ -253,11 +256,13 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
         add_section_heading("Gifts, Donations & Lost Assets", 1)
         table_data = [["Date", "Asset", "Amount", "Value(USD)", "Type"]]
         for row in gifts_list:
+            amt = float(row.get("amount", 0) or 0)
+            val = float(row.get("value_usd", 0) or 0)
             table_data.append([
                 row.get("date", ""),
                 row.get("asset", ""),
-                f"{row.get('amount', 0):.8f}",
-                f"${row.get('value_usd', 0):.2f}",
+                f"{amt:.8f}",
+                f"${val:.2f}",
                 row.get("type", ""),
             ])
         table = Table(table_data, repeatRows=1)
@@ -276,11 +281,13 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
         add_section_heading("Expenses", 1)
         table_data = [["Date", "Asset", "Amount", "Value(USD)", "Type"]]
         for row in expenses_list:
+            amt = float(row.get("amount", 0) or 0)
+            val = float(row.get("value_usd", 0) or 0)
             table_data.append([
                 row.get("date", ""),
                 row.get("asset", ""),
-                f"{row.get('amount', 0):.8f}",
-                f"${row.get('value_usd', 0):.2f}",
+                f"{amt:.8f}",
+                f"${val:.2f}",
                 row.get("type", ""),
             ])
         table = Table(table_data, repeatRows=1)
@@ -299,11 +306,14 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
         add_section_heading("End of Year Holdings", 1)
         bal_data = [["Asset", "Quantity", "Cost Basis", "Market Value", "Description"]]
         for bal in eoy_balances:
+            qty = float(bal.get("quantity", 0) or 0)
+            cost = float(bal.get("cost", 0) or 0)
+            val = float(bal.get("value", 0) or 0)
             bal_data.append([
                 bal.get("asset", ""),
-                f"{bal.get('quantity', 0):.8f}",
-                f"${bal.get('cost', 0):.2f}",
-                f"${bal.get('value', 0):.2f}",
+                f"{qty:.8f}",
+                f"${cost:.2f}",
+                f"${val:.2f}",
                 bal.get("description", "")
             ])
         table = Table(bal_data, repeatRows=1)
@@ -325,7 +335,6 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
     all_txs = report_dict.get("all_transactions", [])
     if all_txs:
         add_section_heading("All Transactions (Raw Data)", 1)
-        # Example columns: id, timestamp, type, from_account_id, to_account_id, etc.
         header = [
             "ID", "Date", "Type", "FromAcct", "ToAcct",
             "Amount", "Fee", "FeeCur", "CostBasisUSD",
@@ -334,18 +343,27 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
         ]
         data = [header]
         for t in all_txs:
+            try:
+                amount = float(t.get('amount', 0) or 0)
+            except:
+                amount = 0.0
+            fee_amount = float(t.get('fee_amount', 0) or 0)
+            cost_basis = float(t.get('cost_basis_usd', 0) or 0)
+            proceeds = float(t.get('proceeds_usd', 0) or 0)
+            realized_gain = float(t.get('realized_gain_usd', 0) or 0)
+
             data.append([
                 t.get("id", ""),
                 t.get("timestamp", ""),
                 t.get("type", ""),
                 t.get("from_account_id", ""),
                 t.get("to_account_id", ""),
-                f"{t.get('amount', 0):.8f}",
-                f"{t.get('fee_amount', 0):.8f}",
+                f"{amount:.8f}",
+                f"{fee_amount:.8f}",
                 t.get("fee_currency", ""),
-                f"{t.get('cost_basis_usd', 0):.2f}",
-                f"{t.get('proceeds_usd', 0):.2f}",
-                f"{t.get('realized_gain_usd', 0):.2f}",
+                f"{cost_basis:.2f}",
+                f"{proceeds:.2f}",
+                f"{realized_gain:.2f}",
                 t.get("holding_period", ""),
                 t.get("source", ""),
                 t.get("purpose", ""),
@@ -353,7 +371,29 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
                 t.get("created_at", ""),
                 t.get("updated_at", "")
             ])
-        table = Table(data, repeatRows=1)
+
+        # Constrain column widths so the table can fit on the page
+        col_widths = [
+            0.6 * inch,  # ID
+            0.9 * inch,  # Date
+            0.8 * inch,  # Type
+            1.0 * inch,  # FromAcct
+            1.0 * inch,  # ToAcct
+            0.8 * inch,  # Amount
+            0.8 * inch,  # Fee
+            0.7 * inch,  # FeeCur
+            1.0 * inch,  # CostBasisUSD
+            1.0 * inch,  # ProceedsUSD
+            1.0 * inch,  # RealGainUSD
+            0.8 * inch,  # HoldPer
+            0.8 * inch,  # Source
+            0.8 * inch,  # Purpose
+            0.7 * inch,  # IsLocked
+            1.0 * inch,  # CreatedAt
+            1.0 * inch   # UpdatedAt
+        ]
+
+        table = Table(data, repeatRows=1, colWidths=col_widths)
         table.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
@@ -373,14 +413,18 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
         ]
         data = [header]
         for d in lot_disposals:
+            disposed_btc = float(d.get('disposed_btc', 0) or 0)
+            cb = float(d.get('cost_basis_usd', 0) or 0)
+            pr = float(d.get('proceeds_usd', 0) or 0)
+            gn = float(d.get('gain_usd', 0) or 0)
             data.append([
                 d.get("id", ""),
                 d.get("transaction_id", ""),
                 d.get("lot_id", ""),
-                f"{d.get('disposed_btc', 0):.8f}",
-                f"{d.get('cost_basis_usd', 0):.2f}",
-                f"{d.get('proceeds_usd', 0):.2f}",
-                f"{d.get('gain_usd', 0):.2f}",
+                f"{disposed_btc:.8f}",
+                f"{cb:.2f}",
+                f"{pr:.2f}",
+                f"{gn:.2f}",
                 d.get("holding_period", "")
             ])
         table = Table(data, repeatRows=1)
@@ -403,11 +447,12 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
         ]
         data = [header]
         for le in ledger_entries:
+            amt = float(le.get('amount', 0) or 0)
             data.append([
                 le.get("id", ""),
                 le.get("transaction_id", ""),
                 le.get("account_id", ""),
-                f"{le.get('amount', 0):.8f}",
+                f"{amt:.8f}",
                 le.get("currency", ""),
                 le.get("entry_type", ""),
                 le.get("transaction_timestamp", ""),
@@ -424,7 +469,7 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
     story.append(PageBreak())
 
     # ------------------------------------------------------------------
-    # 13) Account Balances, Gains & Losses (From calculation.py)
+    # 13) Account Balances, Gains & Losses
     # ------------------------------------------------------------------
     acct_balances = report_dict.get("account_balances", [])
     if acct_balances:
@@ -436,7 +481,7 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
                 ab.get("account_id", ""),
                 ab.get("name", ""),
                 ab.get("currency", ""),
-                str(ab.get("balance", "")),
+                str(ab.get("balance", "0")),
             ])
         table = Table(data, repeatRows=1)
         table.setStyle(TableStyle([
@@ -449,18 +494,21 @@ def generate_comprehensive_tax_report(report_dict: Dict[str, Any]) -> bytes:
     overall_calcs = report_dict.get("overall_calcs", {})
     if overall_calcs:
         add_section_heading("Overall Calculations", 1)
-        # Here we can just do a quick text dump or pick relevant fields
-        # E.g. short_term_gains, short_term_losses, total_net_capital_gains, fees, etc.
-        text_lines = []
+        lines = []
         for k, v in overall_calcs.items():
-            text_lines.append(f"<b>{k}:</b> {v}")
-        story.append(Paragraph("<br/>".join(text_lines), styles["Normal"]))
+            lines.append(f"<b>{k}:</b> {v}")
+        story.append(Paragraph("<br/>".join(lines), styles["Normal"]))
         story.append(Spacer(1, 12))
 
     avg_btc_cb = report_dict.get("average_btc_cost_basis", None)
     if avg_btc_cb is not None:
-        story.append(Paragraph(f"<b>Average BTC Cost Basis:</b> ${avg_btc_cb:.2f}", styles["Normal"]))
-        story.append(Spacer(1, 12))
+        try:
+            avg_btc_cb_val = float(avg_btc_cb)
+            story.append(Paragraph(f"<b>Average BTC Cost Basis:</b> ${avg_btc_cb_val:.2f}", styles["Normal"]))
+            story.append(Spacer(1, 12))
+        except (TypeError, ValueError):
+            # If it's not numeric, skip or handle gracefully
+            pass
 
     story.append(PageBreak())
 
