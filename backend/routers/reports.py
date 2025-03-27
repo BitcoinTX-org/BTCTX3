@@ -1,356 +1,147 @@
-# backend/routers/reports.py
+# FILE: backend/routers/reports.py
 
-from fastapi import APIRouter, Depends, Response, HTTPException
+from fastapi import APIRouter, Depends, Response, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Dict, List
+from io import BytesIO
+from pypdf import PdfReader, PdfWriter
 
+# Database & internal imports
 from backend.database import get_db
-
-# --- aggregator & PDF modules ---
 from backend.services.reports.reporting_core import generate_report_data
 from backend.services.reports.complete_tax_report import generate_comprehensive_tax_report
+from backend.services.reports import transaction_history
+from backend.services.reports.form_8949 import (
+    build_form_8949_and_schedule_d,
+    map_8949_rows_to_field_data,
+    Form8949Row,
+)
 
-# If you have specialized modules:
-# from backend.services.reports.form_8949 import generate_8949_pdf
-# from backend.services.reports.ScheduleD import generate_schedule_d_pdf
-# etc.
+# Import pdftk-based utilities (remove ghostscript references)
+from backend.services.reports.pdftk_filler import fill_pdf_with_pdftk
+from backend.services.reports.pdf_utils import flatten_pdf_with_pdftk
 
 reports_router = APIRouter()
 
-@reports_router.get("/comprehensive_tax")
-def get_comprehensive_tax(
+@reports_router.get("/complete_tax_report")
+def get_complete_tax_report(
     year: int,
-    user_id: Optional[int] = None,   # or required if multi-user
+    user_id: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """
-    Generates the “Complete/Comprehensive Tax Report” in PDF format
-    for the given tax year.
+    Generates a comprehensive tax report (PDF) that includes
+    realized gains, income, fees, and balances.
+    Uses ReportLab and doesn't need pdftk.
     """
-    # 1) aggregator logic
-    #    If your aggregator needs `user_id`, pass it in (not shown in the snippet).
-    report_dict = generate_report_data(db, year)  
-
-    # 2) Generate PDF using your complete_tax_report.py
+    report_dict = generate_report_data(db, year)
     pdf_bytes = generate_comprehensive_tax_report(report_dict)
 
-    # 3) Return PDF
-    return Response(content=pdf_bytes, media_type="application/pdf",
-                    headers={"Content-Disposition": "attachment; filename=CompleteTaxReport.pdf"})
-
-
-@reports_router.get("/form_8949")
-def get_form_8949_report(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Generates a PDF or fillable PDF of IRS Form 8949 for the given tax year.
-    """
-    # aggregator data
-    report_dict = generate_report_data(db, year)
-    
-    # If you have a specialized function:
-    # pdf_content = generate_8949_pdf(report_dict)
-    # For now, a placeholder:
-    pdf_content = b"(Placeholder for 8949 PDF bytes)"
-
-    return Response(content=pdf_content, media_type="application/pdf",
-                    headers={"Content-Disposition": "attachment; filename=Form8949.pdf"})
-
-
-@reports_router.get("/schedule_d")
-def get_schedule_d_report(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Generates Schedule D PDF for capital gains.
-    """
-    # aggregator data
-    report_dict = generate_report_data(db, year)
-
-    # If you have schedule_d.py:
-    # pdf_content = generate_schedule_d_pdf(report_dict)
-    pdf_content = b"(Placeholder for Schedule D PDF)"
-
-    return Response(content=pdf_content, media_type="application/pdf",
-                    headers={"Content-Disposition": "attachment; filename=ScheduleD.pdf"})
-
-
-@reports_router.get("/turbotax_export")
-def get_turbotax_export(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Exports a CSV with capital gains data in the TurboTax Online format.
-    Some devs produce a .txf for TurboTax Desktop. 
-    """
-    report_dict = generate_report_data(db, year)
-    
-    # Here, you'd build a CSV string. 
-    # Possibly something like:
-    # csv_data = build_turbotax_csv(report_dict)
-    csv_data = "date_acquired,date_sold,proceeds,cost_basis,gain,...\n(etc)"
-
-    return Response(content=csv_data, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=TurboTax.csv"})
-
-
-@reports_router.get("/turbotax_cddvd")
-def get_turbotax_cd_dvd_export(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Exports a TXF (Tax eXchange Format) for TurboTax CD/DVD version.
-    """
-    report_dict = generate_report_data(db, year)
-    # txf_str = build_txf_file(report_dict)
-    txf_str = "(Placeholder TXF data)"
-
-    return Response(content=txf_str, media_type="text/plain",
-                    headers={"Content-Disposition": "attachment; filename=TurboTaxCD.txf"})
-
-
-@reports_router.get("/taxact_export")
-def get_taxact_export(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Export capital gains data for TaxAct software (usually CSV).
-    """
-    report_dict = generate_report_data(db, year)
-    # taxact_csv = build_taxact_csv(report_dict)
-    taxact_csv = "transaction_date,disposal_date,cost_basis,proceeds,GainLoss\n(etc)"
-
-    return Response(content=taxact_csv, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=TaxAct.csv"})
-
-
-@reports_router.get("/capital_gains")
-def get_capital_gains_report(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Returns a PDF or CSV summarizing capital gains (short-term & long-term).
-    This might be simpler than the full Comprehensive Tax Report.
-    """
-    report_dict = generate_report_data(db, year)
-    # Maybe we want just a CSV here
-    # or a simplified PDF. Example CSV:
-    gains = report_dict["capital_gains_summary"]
-
-    csv_data = (
-        "Type,Proceeds,Basis,Gain\n"
-        f"ShortTerm,{gains['short_term']['proceeds']},{gains['short_term']['basis']},{gains['short_term']['gain']}\n"
-        f"LongTerm,{gains['long_term']['proceeds']},{gains['long_term']['basis']},{gains['long_term']['gain']}\n"
-        f"Total,{gains['total']['proceeds']},{gains['total']['basis']},{gains['total']['gain']}\n"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="CompleteTaxReport_{year}.pdf"'}
     )
 
-    return Response(content=csv_data, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=CapitalGains.csv"})
 
-
-@reports_router.get("/income")
-def get_income_report(
+@reports_router.get("/irs_reports")
+def get_irs_reports(
     year: int,
-    user_id: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """
-    Summarize deposits flagged as “Income.” Possibly CSV or PDF.
+    Generates a combined PDF for Form 8949 and Schedule D,
+    always flattened with pdftk for XFA-based IRS forms.
     """
-    report_dict = generate_report_data(db, year)
-    inc = report_dict["income_summary"]
-    # Example CSV
-    csv_data = (
-        "Mining,Reward,Other,Total\n"
-        f"{inc['Mining']},{inc['Reward']},{inc['Other']},{inc['Total']}\n"
+    # 1) Gather the data rows for Form 8949 + schedule totals
+    report_data = build_form_8949_and_schedule_d(year, db)
+    short_rows = [Form8949Row(**r) for r in report_data["short_term"]]
+    long_rows = [Form8949Row(**r) for r in report_data["long_term"]]
+
+    path_8949 = "backend/assets/irs_templates/Form_8949_Fillable_2024.pdf"
+    path_sched_d = "backend/assets/irs_templates/Schedule_D_Fillable_2024.pdf"
+    partial_pdfs: List[bytes] = []
+
+    # 2) Fill short-term chunks (Form 8949)
+    #    14 rows per page
+    for i in range(0, len(short_rows), 14):
+        chunk = short_rows[i : i + 14]
+        field_data = map_8949_rows_to_field_data(chunk, page=1)
+        pdf_bytes = fill_pdf_with_pdftk(path_8949, field_data, drop_xfa=True)
+        partial_pdfs.append(pdf_bytes)
+
+    # 3) Fill long-term chunks (Form 8949)
+    for i in range(0, len(long_rows), 14):
+        chunk = long_rows[i : i + 14]
+        field_data = map_8949_rows_to_field_data(chunk, page=2)
+        pdf_bytes = fill_pdf_with_pdftk(path_8949, field_data, drop_xfa=True)
+        partial_pdfs.append(pdf_bytes)
+
+    # 4) Fill Schedule D totals
+    schedule_d_fields = {
+        # Short-term (line 1b)
+        "topmostSubform[0].Page1[0].Table_PartI[0].Row1b[0].f1_07[0]": str(report_data["schedule_d"]["short_term"]["proceeds"]),
+        "topmostSubform[0].Page1[0].Table_PartI[0].Row1b[0].f1_08[0]": str(report_data["schedule_d"]["short_term"]["cost"]),
+        "topmostSubform[0].Page1[0].Table_PartI[0].Row1b[0].f1_09[0]": "",
+        "topmostSubform[0].Page1[0].Table_PartI[0].Row1b[0].f1_10[0]": str(report_data["schedule_d"]["short_term"]["gain_loss"]),
+
+        # Long-term (line 8b)
+        "topmostSubform[0].Page1[0].Table_PartII[0].Row8b[0].f1_27[0]": str(report_data["schedule_d"]["long_term"]["proceeds"]),
+        "topmostSubform[0].Page1[0].Table_PartII[0].Row8b[0].f1_28[0]": str(report_data["schedule_d"]["long_term"]["cost"]),
+        "topmostSubform[0].Page1[0].Table_PartII[0].Row8b[0].f1_29[0]": "",
+        "topmostSubform[0].Page1[0].Table_PartII[0].Row8b[0].f1_30[0]": str(report_data["schedule_d"]["long_term"]["gain_loss"]),
+    }
+    filled_sd_bytes = fill_pdf_with_pdftk(path_sched_d, schedule_d_fields, drop_xfa=True)
+    partial_pdfs.append(filled_sd_bytes)
+
+    # 5) Merge partial PDFs in memory with pypdf
+    merged_pdf = _merge_all_pdfs(partial_pdfs)
+
+    # 6) ALWAYS flatten at the end with pdftk
+    final_pdf = flatten_pdf_with_pdftk(merged_pdf)
+
+    return Response(
+        content=final_pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename=\"IRSReports_{year}.pdf\"'}
     )
-    return Response(content=csv_data, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=Income.csv"})
 
 
-@reports_router.get("/other_gains")
-def get_other_gains_report(
+@reports_router.get("/simple_transaction_history")
+def get_simple_transaction_history(
     year: int,
+    format: str = Query("csv", pattern="^(csv|pdf)$"),
     user_id: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """
-    If you had a separate classification for “Other Gains” not in capital gains
-    or income (like futures, derivatives, or realized PNL).
+    Exports a raw list of transactions (CSV or PDF).
+    Bypasses FIFO and gain/loss logic. This uses a custom
+    ReportLab or CSV approach that doesn't need pdftk.
     """
-    return Response("(Placeholder) No other gains logic implemented.")
+    report_bytes = transaction_history.generate_transaction_history_report(db, year, format)
+
+    file_ext = format.lower()
+    content_type = "text/csv" if file_ext == "csv" else "application/pdf"
+    file_name = f"SimpleTransactionHistory_{year}.{file_ext}"
+
+    return Response(
+        content=report_bytes,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename=\"{file_name}\"'}
+    )
 
 
-@reports_router.get("/gifts_donations_lost")
-def get_gifts_donations_lost_report(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
+def _merge_all_pdfs(pdf_list: List[bytes]) -> bytes:
     """
-    Summarize all 'Withdrawal' transactions with purpose in ('Gift','Donation','Lost').
+    Merges multiple PDFs (in-memory bytes) into a single PDF with pypdf.
     """
-    report_dict = generate_report_data(db, year)
-    # We can produce CSV or JSON. For example:
-    items = report_dict["gifts_donations_lost"]  # a list of dict
-    lines = ["date,asset,amount,value_usd,type"]
-    for row in items:
-        lines.append(f"{row['date']},{row['asset']},{row['amount']},{row['value_usd']},{row['type']}")
-    csv_data = "\n".join(lines)
+    writer = PdfWriter()
+    for pdf_data in pdf_list:
+        reader = PdfReader(BytesIO(pdf_data))
+        for page in reader.pages:
+            writer.add_page(page)
 
-    return Response(content=csv_data, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=GiftsDonations.csv"})
-
-
-@reports_router.get("/expenses")
-def get_expenses_report(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Summarize transactions with purpose=Expenses if you track that as a separate category.
-    """
-    report_dict = generate_report_data(db, year)
-    items = report_dict["expenses"]
-    lines = ["date,asset,amount,value_usd,type"]
-    for row in items:
-        lines.append(f"{row['date']},{row['asset']},{row['amount']},{row['value_usd']},{row['type']}")
-    csv_data = "\n".join(lines)
-
-    return Response(content=csv_data, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=Expenses.csv"})
-
-
-@reports_router.get("/beginning_year_holdings")
-def get_beginning_of_year_holdings(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Typically the end_of_year_holdings from prior year is the beginning for this year.
-    But if you want a direct aggregator approach, you can build a new function 
-    that checks leftover lots as of Jan 1 of the current year.
-    """
-    # A placeholder approach: do the same aggregator, but you might do partial-lot re-lot
-    # from the prior year. Or just show the eoy from (year-1).
-    return Response("(Placeholder) Beginning-of-year holdings not yet implemented.")
-
-
-@reports_router.get("/end_year_holdings")
-def get_end_of_year_holdings(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Summarize leftover BTC at the end of this year (like your eoy_list from aggregator).
-    """
-    report_dict = generate_report_data(db, year)
-    eoy = report_dict["end_of_year_balances"]
-    # eoy is a list of dicts: {asset, quantity, cost, value, description}
-    lines = ["asset,quantity,cost,value,description"]
-    for row in eoy:
-        lines.append(
-            f"{row['asset']},{row['quantity']},{row['cost']},{row['value']},{row['description']}"
-        )
-    csv_data = "\n".join(lines)
-
-    return Response(content=csv_data, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=EndOfYearBalances.csv"})
-
-
-@reports_router.get("/highest_balance")
-def get_highest_balance_report(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Koinly sometimes does a “Highest Balance” – 
-    you’d need to track daily or rolling max BTC quantity. 
-    We'll placeholder it.
-    """
-    return Response("(Placeholder) Highest Balance logic not yet implemented.")
-
-
-@reports_router.get("/buy_sell_report")
-def get_buy_sell_report(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Summarize all buy/sell transactions, ignoring transfers or deposits. 
-    Possibly CSV with date/time, cost basis, proceeds, etc.
-    """
-    return Response("(Placeholder) Not implemented.")
-
-
-@reports_router.get("/ledger_balance")
-def get_ledger_balance_report(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Returns a breakdown of all ledger accounts or some 
-    net balance in the double-entry system, if you want. 
-    Placeholder.
-    """
-    return Response("(Placeholder) Not implemented.")
-
-
-@reports_router.get("/balances_per_wallet")
-def get_balances_per_wallet_report(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Summarize account-by-account balances at year-end, 
-    or monthly, etc. 
-    Placeholder.
-    """
-    return Response("(Placeholder) Not implemented.")
-
-
-@reports_router.get("/transaction_history")
-def get_transaction_history(
-    year: int,
-    user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Full history of transactions within the year (or date range).
-    Could be a big CSV listing everything from 'generate_report_data' or 
-    a simpler function that just does a direct DB query 
-    with optional from_date/to_date.
-    """
-    # Reuse aggregator or just query directly
-    report_dict = generate_report_data(db, year)
-    all_txs = report_dict["capital_gains_transactions"] + report_dict["income_transactions"] 
-    # plus any others if you want a single big CSV
-    lines = ["date,type,amount,asset,cost,proceeds,gain_loss,etc"]
-    # Your aggregator might not have a single “type” for each row, 
-    # so you'd unify it as you see fit. 
-    # We'll just do a placeholder:
-    lines.append("(Placeholder) Not fully integrated yet.")
-    csv_data = "\n".join(lines)
-
-    return Response(content=csv_data, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=TransactionHistory.csv"})
+    merged_stream = BytesIO()
+    writer.write(merged_stream)
+    return merged_stream.getvalue()

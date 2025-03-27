@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from "react";
-import api from "../api"; // Your centralized Axios/fetch wrapper
+import React, { useState, useEffect, useCallback } from "react";
+import api from "../api";
 import "../styles/converter.css";
 
-// Define response types for API calls
 interface LiveBtcPriceResponse {
   USD: number;
 }
@@ -11,16 +10,35 @@ interface HistoricalBtcPriceResponse {
   USD: number;
 }
 
+type Mode = "manual" | "auto" | "date";
+type Field = "USD" | "BTC" | "SATS" | null;
+
 const BtcConverter: React.FC = () => {
-  // State: Mode selection (manual, auto, or date)
-  const [mode, setMode] = useState<"manual" | "auto" | "date">("auto");
+  // ---------------------------------------------------------------------------
+  // 1) Mode & Price
+  // ---------------------------------------------------------------------------
+  const [mode, setMode] = useState<Mode>("auto");
   const [btcPrice, setBtcPrice] = useState<number>(0);
+
+  // For date mode
   const [selectedDate, setSelectedDate] = useState<string>("");
+
+  // ---------------------------------------------------------------------------
+  // 2) Fields & "last-changed" tracking
+  // ---------------------------------------------------------------------------
   const [usdValue, setUsdValue] = useState<string>("");
   const [btcValue, setBtcValue] = useState<string>("");
   const [satsValue, setSatsValue] = useState<string>("");
 
-  // Auto mode: Fetch live price periodically
+  // Which field the user last typed in (USD, BTC, or SATS)?
+  const [lastChangedField, setLastChangedField] = useState<Field>(null);
+
+  // Small helper to round BTC to 5 decimal places
+  const round = (num: number) => Math.round(num * 100_000) / 100_000;
+
+  // ---------------------------------------------------------------------------
+  // 3) Auto Mode: Fetch live price periodically
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (mode !== "auto") return;
 
@@ -43,7 +61,9 @@ const BtcConverter: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [mode]);
 
-  // Date mode: Fetch historical price when date is selected
+  // ---------------------------------------------------------------------------
+  // 4) Date Mode: Fetch historical price
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (mode !== "date" || !selectedDate) return;
 
@@ -66,47 +86,120 @@ const BtcConverter: React.FC = () => {
     fetchHistoricalPrice();
   }, [mode, selectedDate]);
 
-  // Mode switch handler
-  const handleModeChange = (newMode: "manual" | "auto" | "date") => {
-    setMode(newMode);
-    setSelectedDate("");
-    if (newMode === "manual") {
+  // ---------------------------------------------------------------------------
+  // 5) Manual Mode: fetch once to seed the price
+  // ---------------------------------------------------------------------------
+  const fetchManualPriceOnce = async () => {
+    try {
+      const res = await api.get<LiveBtcPriceResponse>("/bitcoin/price");
+      if (res.data && typeof res.data.USD === "number") {
+        setBtcPrice(res.data.USD);
+      } else {
+        setBtcPrice(0);
+      }
+    } catch (err) {
+      console.error("Failed to fetch manual BTC price:", err);
       setBtcPrice(0);
     }
   };
 
-  // Helper: Round to 5 decimal places
-  const round = (num: number) => Math.round(num * 100_000) / 100_000;
+  // ---------------------------------------------------------------------------
+  // 6) Mode Switch
+  // ---------------------------------------------------------------------------
+  const handleModeChange = (newMode: Mode) => {
+    setMode(newMode);
+    setSelectedDate("");
 
-  // Conversion Logic
-  const handleUsdChange = (value: string) => {
-    setUsdValue(value);
-    const usdNum = parseFloat(value) || 0;
-    const btcNum = btcPrice ? usdNum / btcPrice : 0; // Prevent division by zero
-    const satsNum = btcNum * 100_000_000;
-    setBtcValue(btcNum ? round(btcNum).toString() : "");
-    setSatsValue(satsNum ? Math.floor(satsNum).toString() : "");
+    if (newMode === "manual") {
+      fetchManualPriceOnce();
+    }
   };
 
-  const handleBtcChange = (value: string) => {
-    setBtcValue(value);
-    const btcNum = parseFloat(value) || 0;
-    const usdNum = btcNum * btcPrice;
-    const satsNum = btcNum * 100_000_000;
-    setUsdValue(usdNum ? round(usdNum).toString() : "");
-    setSatsValue(satsNum ? Math.floor(satsNum).toString() : "");
-  };
+  // ---------------------------------------------------------------------------
+  // 7) Conversion Handlers (stable via useCallback)
+  //    - The second param, updateLastField, is false when we auto-recalc.
+  // ---------------------------------------------------------------------------
+  const handleUsdChange = useCallback(
+    (value: string, updateLastField = true) => {
+      setUsdValue(value);
+      const usdNum = parseFloat(value) || 0;
+      const btcNum = btcPrice ? usdNum / btcPrice : 0;
+      const satsNum = btcNum * 100_000_000;
 
-  const handleSatsChange = (value: string) => {
-    setSatsValue(value);
-    const satsNum = parseFloat(value) || 0;
-    const btcNum = satsNum / 100_000_000;
-    const usdNum = btcNum * btcPrice;
-    setBtcValue(btcNum ? round(btcNum).toString() : "");
-    setUsdValue(usdNum ? round(usdNum).toString() : "");
-  };
+      setBtcValue(btcNum ? round(btcNum).toString() : "");
+      setSatsValue(satsNum ? Math.floor(satsNum).toString() : "");
 
-  // Render
+      if (updateLastField) {
+        setLastChangedField("USD");
+      }
+    },
+    [btcPrice]
+  );
+
+  const handleBtcChange = useCallback(
+    (value: string, updateLastField = true) => {
+      setBtcValue(value);
+      const btcNum = parseFloat(value) || 0;
+      const usdNum = btcNum * btcPrice;
+      const satsNum = btcNum * 100_000_000;
+
+      setUsdValue(usdNum ? round(usdNum).toString() : "");
+      setSatsValue(satsNum ? Math.floor(satsNum).toString() : "");
+
+      if (updateLastField) {
+        setLastChangedField("BTC");
+      }
+    },
+    [btcPrice]
+  );
+
+  const handleSatsChange = useCallback(
+    (value: string, updateLastField = true) => {
+      setSatsValue(value);
+      const satsNum = parseFloat(value) || 0;
+      const btcNum = satsNum / 100_000_000;
+      const usdNum = btcNum * btcPrice;
+
+      setBtcValue(btcNum ? round(btcNum).toString() : "");
+      setUsdValue(usdNum ? round(usdNum).toString() : "");
+
+      if (updateLastField) {
+        setLastChangedField("SATS");
+      }
+    },
+    [btcPrice]
+  );
+
+  // ---------------------------------------------------------------------------
+  // 8) If btcPrice changes, recalc from whichever field was last typed
+  //    to auto-update the others.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    // If there's nothing typed yet, do nothing
+    if (!usdValue && !btcValue && !satsValue) return;
+    if (btcPrice === 0) return;
+
+    if (lastChangedField === "USD" && usdValue) {
+      handleUsdChange(usdValue, false);
+    } else if (lastChangedField === "BTC" && btcValue) {
+      handleBtcChange(btcValue, false);
+    } else if (lastChangedField === "SATS" && satsValue) {
+      handleSatsChange(satsValue, false);
+    }
+  }, [
+    btcPrice,
+    usdValue,
+    btcValue,
+    satsValue,
+    lastChangedField,
+    handleUsdChange,
+    handleBtcChange,
+    handleSatsChange,
+  ]);
+
+  // ---------------------------------------------------------------------------
+  // 9) Render
+  // ---------------------------------------------------------------------------
   return (
     <div className="converter">
       <div className="converter-title">Sats Converter</div>
@@ -133,7 +226,7 @@ const BtcConverter: React.FC = () => {
         </button>
       </div>
 
-      {/* Manual mode: Show editable price input */}
+      {/* Manual mode: editable price input */}
       {mode === "manual" && (
         <div className="manual-price-row">
           <label htmlFor="manualPrice">BTC Price (USD)</label>
@@ -142,14 +235,23 @@ const BtcConverter: React.FC = () => {
             type="number"
             value={btcPrice}
             onChange={(e) => {
-              const val = parseFloat(e.target.value);
-              setBtcPrice(isNaN(val) ? 0 : val);
+              const val = parseFloat(e.target.value) || 0;
+              setBtcPrice(val);
+
+              // Re-run the last-changed field’s conversion
+              if (lastChangedField === "USD" && usdValue) {
+                handleUsdChange(usdValue, false);
+              } else if (lastChangedField === "BTC" && btcValue) {
+                handleBtcChange(btcValue, false);
+              } else if (lastChangedField === "SATS" && satsValue) {
+                handleSatsChange(satsValue, false);
+              }
             }}
           />
         </div>
       )}
 
-      {/* Auto mode: Show live price */}
+      {/* Auto mode: show live price */}
       {mode === "auto" && (
         <div className="auto-price-row">
           <p>
@@ -162,7 +264,7 @@ const BtcConverter: React.FC = () => {
         </div>
       )}
 
-      {/* Date mode: Show date picker and price */}
+      {/* Date mode: date picker and historical price */}
       {mode === "date" && (
         <div className="date-price-row">
           <div className="date-input-row">

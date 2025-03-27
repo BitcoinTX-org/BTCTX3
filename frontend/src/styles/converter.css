@@ -93,7 +93,7 @@
 .converter-row input,
 .date-price-row input {
   width: 100%;
-  max-width: 200px;      /* Limit width for better appearance */
+  max-width: 300px;      /* Limit width for better appearance */
   padding: 0.4rem;       /* Increased from 0.3rem */
   font-size: 0.9rem;     /* Increased from 0.75rem */
   border: 1px solid #444;

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-main.py
+backend/main.py
 
 Sets up the FastAPI application for BitcoinTX, a double-entry Bitcoin portfolio tracker.
 
@@ -32,12 +32,14 @@ load_dotenv()
 # ---------------------------------------------------------
 SECRET_KEY = os.getenv("SECRET_KEY", "default_secret_key")  # Fallback if not set
 
-# Default CORS origins if none specified (e.g., dev environment)
+# Default CORS origins if none specified (dev environment)
 default_origins = (
     "http://127.0.0.1:3000,"
     "http://localhost:3000,"
     "http://127.0.0.1:5173,"
-    "http://localhost:5173"
+    "http://localhost:5173,"
+    "http://127.0.0.1:8000,"
+    "http://localhost:8000"
 )
 raw_origins = os.getenv("CORS_ALLOW_ORIGINS", default_origins)
 ALLOWED_ORIGINS = [origin.strip() for origin in raw_origins.split(",")]
@@ -92,22 +94,26 @@ def startup_event():
     print("Database tables created or verified.")
 
 # ---------------------------------------------------------
-# Routers (Transaction, User, Account, Calculation, Bitcoin)
+# Routers (Transaction, User, Account, Calculation, Bitcoin, Reports, Debug)
 # ---------------------------------------------------------
-from backend.routers import transaction, user, account, calculation, bitcoin, debug
+# (Mandatory) Routers (Transaction, User, Account, Calculation, Bitcoin, Reports)
+from backend.routers import transaction, user, account, calculation, bitcoin, reports
 
-app.include_router(debug.router, prefix="/api/debug", tags=["debug"])
+# Mandatory routers
 app.include_router(transaction.router, prefix="/api/transactions", tags=["transactions"])
 app.include_router(user.router, prefix="/api/users", tags=["users"])
 app.include_router(account.router, prefix="/api/accounts", tags=["accounts"])
 app.include_router(calculation.router, prefix="/api/calculations", tags=["calculations"])
 app.include_router(bitcoin.router, prefix="/api", tags=["Bitcoin"])
+app.include_router(reports.reports_router, prefix="/api/reports", tags=["reports"])
 
-# ---------------------------------------------------------
-# Reports Router
-# ---------------------------------------------------------
-from backend.routers.reports import reports_router
-app.include_router(reports_router, prefix="/reports", tags=["reports"])
+# (Optional) Debug Router
+try:
+    from backend.routers import debug
+    app.include_router(debug.router, prefix="/api/debug", tags=["debug"])
+except ImportError:
+    print("WARNING: Could not import 'debug' router. If you need debug features, "
+          "ensure 'backend/routers/debug.py' exists.")
 
 # ---------------------------------------------------------
 # Session-Based Auth Helpers

@@ -77,9 +77,6 @@
   flex-direction: column;
   gap: 2rem; /* space between date groups */
 }
-.transactions-day-group {
-  /* each date group can be separated or left alone */
-}
 
 /* Date heading (e.g. "Mar 15, 2025") */
 .date-heading {
